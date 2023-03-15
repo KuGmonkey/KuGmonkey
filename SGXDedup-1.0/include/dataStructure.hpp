@@ -17,7 +17,6 @@ typedef struct {
     u_char logicData[MAX_CHUNK_SIZE];
     u_char chunkHash[CHUNK_HASH_SIZE];
     u_char encryptKey[CHUNK_ENCRYPT_KEY_SIZE];
-    u_char sig[CHUNK_HASH_SIZE];
 } Chunk_t;
 
 typedef struct {

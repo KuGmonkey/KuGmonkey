@@ -247,8 +247,8 @@ bool CryptoPrimitive::encryptWithKey(u_char* dataBuffer, const int dataSize, u_c
 bool CryptoPrimitive::decryptWithKey(u_char* ciphertext, const int dataSize, u_char* key, u_char* dataBuffer)
 {
     int plaintlen, len;
-    //EVP_CIPHER_CTX_set_padding(cipherctx_, 0);
-    if (EVP_DecryptInit_ex(cipherctx_, EVP_aes_256_cfb(), nullptr, key, key) != 1) {
+    EVP_CIPHER_CTX_set_padding(cipherctx_, 0);
+    if (EVP_DecryptInit_ex(cipherctx_, EVP_aes_256_cfb(), nullptr, key, iv_) != 1) {
         cerr << "decrypt error\n";
         return false;
     }

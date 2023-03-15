@@ -184,8 +184,6 @@ void Chunker::ChunkerInit(string path)
 
 bool Chunker::chunking()
 {
-
-    cerr<<"Chunker : to chunking "<<endl;
     /*fixed-size Chunker*/
     if (ChunkerType_ == CHUNKER_FIX_SIZE_TYPE) {
         fixSizeChunking();

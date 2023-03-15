@@ -41,11 +41,7 @@ public:
 #endif
     void runKeyGenerateThread(SSL* connection);
     bool initEnclaveViaRemoteAttestation(ssl* raSecurityChannel, SSL* sslConnection);
-    bool initEnclave();
-    void getCurrentSessionKey(char* currentSessionKeyTemp);
     bool getRASetupFlag();
-    bool generateKeywithPOW(uint8_t* hmac,uint8_t* chunkHashList, int hashSize,uint8_t* keyList, uint8_t* tagList);
-    bool verifyChunk(uint8_t* chunk, uint32_t size, uint8_t* chunkHmac);
 };
 
 #endif //SGXDEDUP_KEYSERVER_HPP

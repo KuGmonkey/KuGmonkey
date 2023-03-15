@@ -1,7 +1,6 @@
 #ifndef SGXDEDUP_DATASR_HPP
 #define SGXDEDUP_DATASR_HPP
 
-#include "keyServer.hpp"
 #include "../src/enclave/include/powServer.hpp"
 #include "boost/bind.hpp"
 #include "boost/thread.hpp"
@@ -24,9 +23,6 @@ private:
     StorageCore* storageObj_;
     DedupCore* dedupCoreObj_;
     powServer* powServerObj_;
-
-    keyServer* keyServerObj_;
-
     uint32_t restoreChunkBatchNumber_;
     u_char keyExchangeKey_[KEY_SERVER_SESSION_KEY_SIZE];
     bool keyExchangeKeySetFlag_;
@@ -40,14 +36,12 @@ private:
 #endif
 public:
     enclaveSession* keyServerSession_;
-    DataSR(StorageCore* storageObj, DedupCore* dedupCoreObj, powServer* powServerObj, keyServer* keyServerObj, ssl* powSecurityChannelTemp, ssl* dataSecurityChannelTemp);
+    DataSR(StorageCore* storageObj, DedupCore* dedupCoreObj, powServer* powServerObj, ssl* powSecurityChannelTemp, ssl* dataSecurityChannelTemp);
     ~DataSR() {};
     void runData(SSL* sslConnection);
     void runPow(SSL* sslConnection);
-    void runKey(SSL* sslConnection);
     void runKeyServerRemoteAttestation();
     void runKeyServerSessionKeyUpdate();
-    void runSessionKeyUpdate();
 };
 
 #endif //SGXDEDUP_DATASR_HPP

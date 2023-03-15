@@ -75,9 +75,6 @@ void powClient::run()
     batchChunk.clear();
     bool powRequestStatus = false;
 
-    u_char chunkKey[CHUNK_ENCRYPT_KEY_SIZE*powBatchSize];
-    u_char chunkHash[CHUNK_HASH_SIZE*powBatchSize];
-
     while (true) {
 
         if (inputMQ_->done_ && inputMQ_->isEmpty()) {
@@ -89,8 +86,6 @@ void powClient::run()
                 continue;
             } else {
                 batchChunk.push_back(tempChunk);
-                //memcpy(chunkHash+currentBatchChunkNumber*CHUNK_HASH_SIZE,tempChunk.chunk.chunkHash,CHUNK_HASH_SIZE);
-
                 memcpy(batchChunkLogicDataCharBuffer + currentBatchSize, &tempChunk.chunk.logicDataSize, sizeof(int));
                 currentBatchSize += sizeof(int);
                 memcpy(batchChunkLogicDataCharBuffer + currentBatchSize, tempChunk.chunk.logicData, tempChunk.chunk.logicDataSize);
@@ -102,12 +97,10 @@ void powClient::run()
 #if SYSTEM_BREAK_DOWN == 1
             gettimeofday(&timestartPowClient, NULL);
 #endif
-            cerr<<"Powclient : to cacl hash"<<endl;
-            uint8_t clientMac[32];
+            uint8_t clientMac[16];
             uint8_t chunkHashList[currentBatchChunkNumber * CHUNK_HASH_SIZE];
             memset(chunkHashList, 0, currentBatchChunkNumber * CHUNK_HASH_SIZE);
-            powRequestStatus = this->request(batchChunkLogicDataCharBuffer, currentBatchSize, currentBatchChunkNumber,  clientMac, chunkHashList);
-            cerr<<"Powclient : cacl hash done"<<endl;
+            powRequestStatus = this->request(batchChunkLogicDataCharBuffer, currentBatchSize, clientMac, chunkHashList);
 #if SYSTEM_BREAK_DOWN == 1
             gettimeofday(&timeendPowClient, NULL);
             diff = 1000000 * (timeendPowClient.tv_sec - timestartPowClient.tv_sec) + timeendPowClient.tv_usec - timestartPowClient.tv_usec;
@@ -121,9 +114,9 @@ void powClient::run()
 #if SYSTEM_BREAK_DOWN == 1
                 gettimeofday(&timestartPowClient, NULL);
 #endif
-                // for (int i = 0; i < currentBatchChunkNumber; i++) {
-                //     memcpy(batchChunk[i].chunk.chunkHash, chunkHashList + i * CHUNK_HASH_SIZE, CHUNK_HASH_SIZE);
-                // }
+                for (int i = 0; i < currentBatchChunkNumber; i++) {
+                    memcpy(batchChunk[i].chunk.chunkHash, chunkHashList + i * CHUNK_HASH_SIZE, CHUNK_HASH_SIZE);
+                }
 #if SYSTEM_BREAK_DOWN == 1
                 gettimeofday(&timeendPowClient, NULL);
                 diff = 1000000 * (timeendPowClient.tv_sec - timestartPowClient.tv_sec) + timeendPowClient.tv_usec - timestartPowClient.tv_usec;
@@ -134,10 +127,8 @@ void powClient::run()
 #if SYSTEM_BREAK_DOWN == 1
             gettimeofday(&timestartPowClient, NULL);
 #endif
-            u_char serverResponse[sizeof(int) + sizeof(bool) * currentBatchChunkNumber + 2 * currentBatchChunkNumber * 32 + 32];
-            cerr<<"Powclient : to send hash"<<endl;
+            u_char serverResponse[sizeof(int) + sizeof(bool) * currentBatchChunkNumber];
             senderObj_->sendEnclaveSignedHash(clientMac, chunkHashList, currentBatchChunkNumber, serverResponse, netstatus);
-            cerr<<"Powclient : send hash done"<<endl;
 #if SYSTEM_DEBUG_FLAG == 1
             cout << "PowClient : send signed hash list data = " << endl;
             PRINT_BYTE_ARRAY_POW_CLIENT(stderr, clientMac, 16);
@@ -151,7 +142,7 @@ void powClient::run()
 #endif
             if (netstatus != SUCCESS) {
                 cerr << "PowClient : server pow signed hash verify error, client mac = " << endl;
-                PRINT_BYTE_ARRAY_POW_CLIENT(stderr, clientMac, 32);
+                PRINT_BYTE_ARRAY_POW_CLIENT(stderr, clientMac, 16);
                 PRINT_BYTE_ARRAY_POW_CLIENT(stderr, chunkHashList, CHUNK_HASH_SIZE);
                 break;
             } else {
@@ -159,45 +150,14 @@ void powClient::run()
                 memcpy(&totalNeedChunkNumber, serverResponse, sizeof(int));
                 bool requiredChunksList[currentBatchChunkNumber];
                 memcpy(requiredChunksList, serverResponse + sizeof(int), sizeof(bool) * currentBatchChunkNumber);
-                u_char cipherkey[currentBatchChunkNumber * 32];
-                memcpy(cipherkey, serverResponse + sizeof(int) + currentBatchChunkNumber * sizeof(bool), currentBatchChunkNumber * 32);
-                u_char serverHmac[32];
-                memcpy(serverHmac, serverResponse + sizeof(int) + currentBatchChunkNumber * sizeof(bool) + currentBatchChunkNumber * 32, 32);
-                u_char tagList[currentBatchChunkNumber * 32];
-                memcpy(tagList, serverResponse + sizeof(int) + currentBatchChunkNumber * sizeof(bool) +  currentBatchChunkNumber * 32 + 32, currentBatchChunkNumber * 32);
-
-                cerr<<"Powclient : to encrypt send"<<endl;
-                sgx_status_t status, retval;
-                uint8_t cipherBlock[1024], plainkey[currentBatchChunkNumber * 32], sigList[totalNeedChunkNumber * 32];
-                status = ecall_sendEncrypt(eid_, &retval, currentBatchChunkNumber, totalNeedChunkNumber, cipherkey, plainkey, serverHmac, (uint8_t*)requiredChunksList, cipherBlock, sigList);
-                if(status != SGX_SUCCESS)
-                {
-                    cerr << "PowClient : send encrypt fail" << endl;
-                    break;
-                }
-                cerr<<"Powclient : encrypt send done"<<endl;
-                int currentIndex = 0, needNumber = 0;
-                for(int i=0;i<currentBatchChunkNumber;i++)
-                {
-                    memcpy(batchChunk[i].chunk.chunkHash,tagList + i*32,32);
-                    memcpy(batchChunk[i].chunk.encryptKey,plainkey + i*32, 32);
-                     if (requiredChunksList[i] == true) {
-                        batchChunk[i].chunk.type = CHUNK_TYPE_NEED_UPLOAD;
-                        memcpy(batchChunk[i].chunk.logicData, cipherBlock+currentIndex, batchChunk[i].chunk.logicDataSize);
-                        currentIndex += batchChunk[i].chunk.logicDataSize;
-                        memcpy(batchChunk[i].chunk.sig, sigList + needNumber * 32, 32);
-                        needNumber++;
-                    }
-                }
-
 #if SYSTEM_DEBUG_FLAG == 1
                 cout << "PowClient : send pow signed hash for " << currentBatchChunkNumber << " chunks success, Server need " << totalNeedChunkNumber << " over all " << batchChunk.size() << endl;
 #endif
-                // for (int i = 0; i < totalNeedChunkNumber; i++) {
-                //     if (requiredChunksList[i] == true) {
-                //         batchChunk[i].chunk.type = CHUNK_TYPE_NEED_UPLOAD;
-                //     }
-                // }
+                for (int i = 0; i < totalNeedChunkNumber; i++) {
+                    if (requiredChunksList[i] == true) {
+                        batchChunk[i].chunk.type = CHUNK_TYPE_NEED_UPLOAD;
+                    }
+                }
                 int batchChunkSize = batchChunk.size();
                 for (int i = 0; i < batchChunkSize; i++) {
                     senderObj_->insertMQ(batchChunk[i]);
@@ -224,13 +184,10 @@ void powClient::run()
     return;
 }
 
-bool powClient::request(u_char* logicDataBatchBuffer, uint32_t bufferSize, uint32_t number, uint8_t* cmac, uint8_t* chunkHashList)
+bool powClient::request(u_char* logicDataBatchBuffer, uint32_t bufferSize, uint8_t cmac[16], uint8_t* chunkHashList)
 {
     sgx_status_t status, retval;
-    //status = ecall_calcmac(eid_, &retval, (uint8_t*)logicDataBatchBuffer, bufferSize, cmac, chunkHashList);
-    status = ecall_keyExchangeEncrypt(eid_,&retval,(uint8_t*)logicDataBatchBuffer, bufferSize, number, cmac, chunkHashList);
-    print("Powclient : keyexchange hmac = ", 32, 1);
-    PRINT_BYTE_ARRAY_POW_CLIENT(stderr,cmac,32);
+    status = ecall_calcmac(eid_, &retval, (uint8_t*)logicDataBatchBuffer, bufferSize, cmac, chunkHashList);
     if (status != SGX_SUCCESS) {
         cerr << "PowClient : ecall failed, status = " << endl;
         sgxErrorReport(status);
@@ -618,12 +575,12 @@ bool powClient::do_attestation()
     second = diff / 1000000.0;
     cout << "PowClient : create enclave time = " << second << " s" << endl;
 #endif
+    cerr << "PowClient : create pow enclave done" << endl;
     if (status != SGX_SUCCESS) {
         cerr << "PowClient : Can not launch pow_enclave : " << enclaveName << endl;
         sgxErrorReport(status);
         return false;
     }
-    cerr << "PowClient : create pow enclave done" << endl;
 #if SYSTEM_BREAK_DOWN == 1
     gettimeofday(&timestartEnclave, NULL);
 #endif
@@ -638,7 +595,6 @@ bool powClient::do_attestation()
         cerr << "PowClient : sgx ra init failed : " << sgxrv << endl;
         return false;
     }
-    cerr << "PowClient : ra init done" << endl;
 
     /* Generate msg0 */
 
@@ -649,7 +605,6 @@ bool powClient::do_attestation()
         sgxErrorReport(status);
         return false;
     }
-    cerr << "PowClient : get epid done" << endl;
     /* Generate msg1 */
 
     status = sgx_ra_get_msg1(ctx_, eid_, sgx_ra_get_ga, &msg1);
@@ -659,7 +614,6 @@ bool powClient::do_attestation()
         sgxErrorReport(status);
         return false;
     }
-    cerr << "PowClient : get msg1 done" << endl;
 
     int netstatus;
     if (!senderObj_->sendSGXmsg01(msg0_extended_epid_group_id, msg1, msg2, netstatus)) {
@@ -668,8 +622,6 @@ bool powClient::do_attestation()
         return false;
     }
 
-    cerr << "PowClient : send msg1 done" << endl;
-
     status = sgx_ra_proc_msg2(ctx_, eid_, sgx_ra_proc_msg2_trusted, sgx_ra_get_msg3_trusted, msg2, sizeof(sgx_ra_msg2_t) + msg2->sig_rl_size, &msg3, &msg3Size);
 
     if (status != SGX_SUCCESS) {
@@ -677,18 +629,15 @@ bool powClient::do_attestation()
         sgxErrorReport(status);
         enclave_ra_close(eid_, &sgxrv, ctx_);
     }
-    cerr << "PowClient : proc msg2 done" << endl;
 
     free(msg2);
-    sleep(3);
-    cerr << "PowClient : to send msg3" << endl;
+
     if (!senderObj_->sendSGXmsg3(msg3, msg3Size, msg4, netstatus)) {
         enclave_ra_close(eid_, &sgxrv, ctx_);
         cerr << "PowClient : error send msg3 & get back msg4: " << netstatus << endl;
         return false;
     }
     free(msg3);
-    cerr << "PowClient :send msg3 done" << endl;
 #if SYSTEM_BREAK_DOWN == 1
     gettimeofday(&timeendEnclave, NULL);
     diff = 1000000 * (timeendEnclave.tv_sec - timestartEnclave.tv_sec) + timeendEnclave.tv_usec - timestartEnclave.tv_usec;
@@ -703,7 +652,6 @@ bool powClient::do_attestation()
     } else {
         enclaveIsTrusted_ = msg4->status;
         free(msg4);
-        cerr << "PowClient : attestion done" << endl;
         return true;
     }
 }
@@ -726,10 +674,4 @@ bool powClient::insertMQ(Data_t& newChunk)
 bool powClient::extractMQ(Data_t& newChunk)
 {
     return inputMQ_->pop(newChunk);
-}
-
-void powClient::setSessionKey(unsigned char* currentSessionKey, unsigned char* hmacKey)
-{
-    sgx_status_t status, retval;
-    status = ecall_setCurrentSessionKey(eid_, &retval, currentSessionKey, hmacKey);
 }

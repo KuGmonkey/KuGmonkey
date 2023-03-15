@@ -59,9 +59,6 @@ void Fingerprinter::run()
                 keyClientObj_->insertMQ(tempChunk);
                 continue;
             } else {
-                
-                keyClientObj_->insertMQ(tempChunk);
-                continue;
 
 #if SYSTEM_BREAK_DOWN == 1
                 gettimeofday(&timestartFingerprinter, NULL);

@@ -91,7 +91,7 @@ bool Sender::sendRecipe(Recipe_t request, RecipeList_t recipeList, int& status)
     }
 }
 
-bool Sender::getKeyServerSK(u_char* SK, u_char* HK)
+bool Sender::getKeyServerSK(u_char* SK)
 {
     NetworkHeadStruct_t requestBody;
     requestBody.clientID = clientID_;
@@ -100,17 +100,16 @@ bool Sender::getKeyServerSK(u_char* SK, u_char* HK)
     int sendSize = sizeof(NetworkHeadStruct_t);
     char requestBuffer[sendSize];
     memcpy(requestBuffer, &requestBody, sizeof(NetworkHeadStruct_t));
-    char respondBuffer[sizeof(NetworkHeadStruct_t) + 2 * KEY_SERVER_SESSION_KEY_SIZE];
+    char respondBuffer[sizeof(NetworkHeadStruct_t) + KEY_SERVER_SESSION_KEY_SIZE];
     int recvSize = 0;
     if (!this->sendDataPow(requestBuffer, sendSize, respondBuffer, recvSize)) {
         return false;
     } else {
-        if (recvSize != sizeof(NetworkHeadStruct_t) + 2 * KEY_SERVER_SESSION_KEY_SIZE) {
+        if (recvSize != sizeof(NetworkHeadStruct_t) + KEY_SERVER_SESSION_KEY_SIZE) {
             cerr << "Client : storage server reject connection beacuse keyexchange key not set not, try again later" << endl;
             return false;
         } else {
             memcpy(SK, respondBuffer + sizeof(NetworkHeadStruct_t), KEY_SERVER_SESSION_KEY_SIZE);
-            memcpy(HK, respondBuffer + sizeof(NetworkHeadStruct_t)+KEY_SERVER_SESSION_KEY_SIZE, KEY_SERVER_SESSION_KEY_SIZE);
             return true;
         }
     }
@@ -225,13 +224,11 @@ bool Sender::sendSGXmsg3(sgx_ra_msg3_t* msg3, uint32_t size, ra_msg4_t*& msg4, i
     char respondBuffer[SGX_MESSAGE_MAX_SIZE];
     int recvSize = 0;
 
-    cerr << "Sender : to send msg3" << endl;
-
     if (!this->sendDataPow(requestBuffer, sendSize, respondBuffer, recvSize)) {
         cerr << "Sender : peer closed, send sgx msg 3 error" << endl;
         return false;
     }
-   cerr << "Sender :  send msg3 done" << endl;
+
     memcpy(&respondBody, respondBuffer, sizeof(NetworkHeadStruct_t));
     status = respondBody.messageType;
 
@@ -252,13 +249,13 @@ bool Sender::sendEnclaveSignedHash(u_char* clientMac, u_char* hashList, int requ
     respondBody.clientID = 0;
     respondBody.dataSize = 0;
 
-    int sendSize = sizeof(NetworkHeadStruct_t) + sizeof(uint8_t) * 32 + requestNumber * CHUNK_HASH_SIZE;
-    requestBody.dataSize = sizeof(uint8_t) * 32 + requestNumber * CHUNK_HASH_SIZE;
+    int sendSize = sizeof(NetworkHeadStruct_t) + sizeof(uint8_t) * 16 + requestNumber * CHUNK_HASH_SIZE;
+    requestBody.dataSize = sizeof(uint8_t) * 16 + requestNumber * CHUNK_HASH_SIZE;
     char requestBuffer[sendSize];
     memcpy(requestBuffer, &requestBody, sizeof(NetworkHeadStruct_t));
-    memcpy(requestBuffer + sizeof(NetworkHeadStruct_t), clientMac, sizeof(uint8_t) * 32);
-    memcpy(requestBuffer + sizeof(NetworkHeadStruct_t) + sizeof(uint8_t) * 32, hashList, requestNumber * CHUNK_HASH_SIZE);
-    char respondBuffer[sizeof(NetworkHeadStruct_t) + sizeof(bool) * requestNumber + sizeof(int) + 2 * requestNumber * 32 + 32];
+    memcpy(requestBuffer + sizeof(NetworkHeadStruct_t), clientMac, sizeof(uint8_t) * 16);
+    memcpy(requestBuffer + sizeof(NetworkHeadStruct_t) + sizeof(uint8_t) * 16, hashList, requestNumber * CHUNK_HASH_SIZE);
+    char respondBuffer[sizeof(NetworkHeadStruct_t) + sizeof(bool) * requestNumber + sizeof(int)];
     int recvSize = 0;
     if (!this->sendDataPow(requestBuffer, sendSize, respondBuffer, recvSize)) {
         cerr << "Sender : send enclave signed hash to server & get back required chunk list error" << endl;
@@ -267,7 +264,7 @@ bool Sender::sendEnclaveSignedHash(u_char* clientMac, u_char* hashList, int requ
     memcpy(&respondBody, respondBuffer, sizeof(NetworkHeadStruct_t));
     status = respondBody.messageType;
     if (status == SUCCESS) {
-        memcpy(respond, respondBuffer + sizeof(NetworkHeadStruct_t), sizeof(int) + sizeof(bool) * requestNumber + 2 * requestNumber*32 + 32 );
+        memcpy(respond, respondBuffer + sizeof(NetworkHeadStruct_t), sizeof(int) + sizeof(bool) * requestNumber);
         return true;
     } else {
         return false;
@@ -280,7 +277,6 @@ bool Sender::sendDataPow(char* request, int requestSize, char* respond, int& res
         cerr << "Sender : send data error peer closed" << endl;
         return false;
     }
-       cerr << "Sender : send done" << endl;
     if (!powSecurityChannel_->recv(sslConnectionPow_, respond, respondSize)) {
         cerr << "Sender : recv data error peer closed" << endl;
         return false;
@@ -339,7 +335,7 @@ void Sender::run()
     Recipe_t fileRecipe;
     int sendBatchSize = config.getSendChunkBatchSize();
     int status;
-    char* sendChunkBatchBuffer = (char*)malloc(sizeof(NetworkHeadStruct_t) + sizeof(int) + sizeof(char) * sendBatchSize * (2 * CHUNK_HASH_SIZE + MAX_CHUNK_SIZE + sizeof(int)));
+    char* sendChunkBatchBuffer = (char*)malloc(sizeof(NetworkHeadStruct_t) + sizeof(int) + sizeof(char) * sendBatchSize * (CHUNK_HASH_SIZE + MAX_CHUNK_SIZE + sizeof(int)));
     bool jobDoneFlag = false;
     int currentChunkNumber = 0;
     int currentSendRecipeNumber = 0;
@@ -390,8 +386,6 @@ void Sender::run()
                     currentSendChunkBatchBufferSize += sizeof(int);
                     memcpy(sendChunkBatchBuffer + currentSendChunkBatchBufferSize, tempChunk.chunk.logicData, tempChunk.chunk.logicDataSize);
                     currentSendChunkBatchBufferSize += tempChunk.chunk.logicDataSize;
-                    memcpy(sendChunkBatchBuffer + currentSendChunkBatchBufferSize, tempChunk.chunk.sig, CHUNK_HASH_SIZE);
-                    currentSendChunkBatchBufferSize += CHUNK_HASH_SIZE;
                     currentChunkNumber++;
                     // cout << "Sender : Chunk ID = " << tempChunk.chunk.ID << " size = " << tempChunk.chunk.logicDataSize << endl;
 #if SYSTEM_BREAK_DOWN == 1
@@ -432,7 +426,7 @@ void Sender::run()
             if (this->sendChunkList(sendChunkBatchBuffer, currentSendChunkBatchBufferSize, currentChunkNumber, status)) {
                 // cout << "Sender : sent " << setbase(10) << currentChunkNumber << " chunk" << endl;
                 currentSendChunkBatchBufferSize = sizeof(NetworkHeadStruct_t) + sizeof(int);
-                memset(sendChunkBatchBuffer, 0, sizeof(NetworkHeadStruct_t) + sizeof(int) + sizeof(char) * sendBatchSize * (2 * CHUNK_HASH_SIZE + MAX_CHUNK_SIZE + sizeof(int)));
+                memset(sendChunkBatchBuffer, 0, sizeof(NetworkHeadStruct_t) + sizeof(int) + sizeof(char) * sendBatchSize * (CHUNK_HASH_SIZE + MAX_CHUNK_SIZE + sizeof(int)));
                 currentChunkNumber = 0;
 #if SYSTEM_BREAK_DOWN == 1
                 gettimeofday(&timeendSender, NULL);

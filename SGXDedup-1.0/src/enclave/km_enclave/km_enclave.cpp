@@ -25,11 +25,6 @@ using namespace std;
 //         0x24, 0xb7, 0xbd, 0xc9, 0x03, 0xf2, 0x9a, 0x28,
 //         0xa8, 0x3c, 0xc8, 0x10, 0x11, 0x14, 0x5e, 0x06 }
 
-const uint8_t tagKey_[32] =   { 0x72, 0x12, 0x8a, 0x7a, 0x17, 0x52, 0x6e, 0xbf,
-                                                             0x85, 0xd0, 0x3a, 0x62, 0x37, 0x30, 0xae, 0xad,
-                                                             0x3e, 0x3d, 0xaa, 0xee, 0x9c, 0x60, 0x73, 0x1d,
-                                                             0xb0, 0x5b, 0xe8, 0x62, 0x1c, 0x4b, 0xeb, 0x38 };
-
 // }; //little endding/hard coding
 
 #define PSE_RETRIES 5 /* Arbitrary. Not too long, not too short. */
@@ -516,73 +511,4 @@ error:
     EVP_CIPHER_CTX_cleanup(ctx);
     EVP_CIPHER_CTX_free(ctx);
     return 0;
-}
-
-sgx_status_t ecall_processSignedHash(uint8_t* hmac,uint8_t* chunkHashList, int hashSize, uint8_t* keyList, uint8_t* tagList)
-{
-    // uint8_t clientHmac[32];
-    // sgx_hmac_sha256_msg(chunkHashList, hashSize, currentSessionKey_,32,clientHmac,32);
-    // if(memcmp(hmac,clientHmac,32)!=0)
-    // {
-    //     print("KeyEnclave : hmac error", 24, 1);
-    //     print("KeyEnclave : recved hmac = ", 28, 1);
-    //     print((char*)hmac,32,2);
-    //     print("KeyEnclave : generate hmac = ", 30, 1);
-    //     print((char*)clientHmac,32,2);
-    //     return SGX_ERROR_INVALID_SIGNATURE;
-    // }
-
-    uint8_t* chunkHash = new uint8_t [hashSize];
-    unsigned int plainlen_, cipherlen_;
-
-    int retval = decrypt(chunkHashList, hashSize, currentSessionKey_, 32, chunkHash, &plainlen_);
-
-    if(retval != 1)
-    {
-        print("KMEnclave : dncrypt error\n", 27, 1);
-        return SGX_ERROR_UNEXPECTED;
-    }
-
-    uint8_t hashTemp[64], hash[32], tagTemp[32];
-    uint8_t* plainKey = new uint8_t [plainlen_];
-    uint8_t* cipherKey = new uint8_t[plainlen_];
-
-    for(int index=0; index<(plainlen_/CHUNK_HASH_SIZE); index++)
-    {
-        memcpy_s(hashTemp, 64, chunkHash + CHUNK_HASH_SIZE*index, 32);
-        memcpy_s(hashTemp, 64, serverSecret_, 32);
-        sgx_status_t sha256status = sgx_sha256_msg(hashTemp, 64, (sgx_sha256_hash_t*)hash);
-        if(sha256status != SGX_SUCCESS)
-        {
-            return sha256status;
-        }
-        sgx_hmac_sha256_msg(chunkHash + CHUNK_HASH_SIZE*index , 32, tagKey_, 32, tagTemp, 32);
-        memcpy_s(plainKey + index*32, plainlen_, hash, 32);
-        memcpy_s(tagList + index*32, plainlen_, tagTemp, 32);
-    }
-
-    retval = encrypt(plainKey, plainlen_, currentSessionKey_, 32, cipherKey, &cipherlen_);
-    if(retval != 1)
-    {
-        print("KMEnclave : encrypt error\n", 27, 1);
-        return SGX_ERROR_UNEXPECTED;
-    }
-
-    sgx_hmac_sha256_msg(cipherKey, plainlen_, currentSessionKey_, 32,  hash, 32);
-
-    memcpy_s(keyList, hashSize + 32, cipherKey, plainlen_);
-    memcpy_s(keyList + hashSize, hashSize + 32, hash, 32);
-
-    return SGX_SUCCESS;
-}
-
-sgx_status_t ecall_verifyChunkSig(uint8_t* chunkHmac, uint8_t* chunk, uint32_t size)
-{
-    uint8_t hmac[32];
-    sgx_hmac_sha256_msg(chunk, size, currentSessionKey_, 32,  hmac, 32);
-    if(memcmp(hmac,chunkHmac,32)!=0)
-    {
-        return SGX_ERROR_INVALID_SIGNATURE;
-    }
-    return SGX_SUCCESS;
 }

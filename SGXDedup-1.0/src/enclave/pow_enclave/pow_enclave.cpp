@@ -11,7 +11,6 @@
 #include <sgx_tkey_exchange.h>
 #include <sgx_utils.h>
 #include <stdio.h>
-#include <openssl/evp.h>
 // static const sgx_ec256_public_t def_service_public_key = {
 //     { 0x72, 0x12, 0x8a, 0x7a, 0x17, 0x52, 0x6e, 0xbf,
 //         0x85, 0xd0, 0x3a, 0x62, 0x37, 0x30, 0xae, 0xad,
@@ -26,17 +25,9 @@
 
 #define PSE_RETRIES 5 /* Arbitrary. Not too long, not too short. */
 
-uint8_t currentBlock[1028];
-
 /*
  * quote pow_enclave
  * */
-
-int encrypt(uint8_t* plaint, uint32_t plaintLen, uint8_t* symKey,
-    uint32_t symKeyLen, uint8_t* cipher, uint32_t* cipherLen);
-
-int decrypt(uint8_t* cipher, uint32_t cipherLen, uint8_t* symKey,
-    uint32_t symKeyLen, uint8_t* plaint, uint32_t* plaintLen);
 
 sgx_status_t enclave_ra_init(sgx_ec256_public_t key, int b_pse,
     sgx_ra_context_t* ctx, sgx_status_t* pse_status)
@@ -90,15 +81,6 @@ sgx_status_t ecall_setSessionKey(sgx_ra_context_t* ctx, sgx_ra_key_type_t type)
     return ret_status;
 }
 
-uint8_t  currentSessionKey_[32];
-uint8_t  hmacKey_[32];
-sgx_status_t  ecall_setCurrentSessionKey(uint8_t* currentSessionKey, uint8_t* hmacKey)
-{
-    memcpy(currentSessionKey_,currentSessionKey,32);
-    memcpy(hmacKey_, hmacKey, 32);
-    return SGX_SUCCESS;
-}
-
 /*
  * work load pow_enclave
  * */
@@ -132,92 +114,6 @@ sgx_status_t ecall_calcmac(uint8_t* src, uint32_t srcLen, uint8_t* cmac, uint8_t
 
     sgx_cmac128_final(cmac_ctx, (sgx_cmac_128bit_tag_t*)cmac);
     sgx_cmac128_close(cmac_ctx);
-    return SGX_SUCCESS;
-}
-
-sgx_status_t ecall_keyExchangeEncrypt(uint8_t* chunkData, uint32_t srcLen, uint32_t number, uint8_t* hmac, uint8_t* chunkHashList)
-{
-    memset(currentBlock,0,1028);
-    memcpy(currentBlock, chunkData, srcLen);
-
-    int sz, currentSize=0;
-    uint8_t chunkHash[number * CHUNK_HASH_SIZE];
-
-    for(int i = 0 ; i < number ; i++)
-    {
-        memcpy(&sz, currentBlock + currentSize, sizeof(int));
-        currentSize += sizeof(int);
-        sgx_sha256_msg(currentBlock + currentSize, sz, (sgx_sha256_hash_t*)chunkHash + i * CHUNK_HASH_SIZE);
-        currentSize += sz;
-    }
-    
-    unsigned int cipherlen;
-
-    int retval = encrypt(chunkHash, number * CHUNK_HASH_SIZE , currentSessionKey_,32,chunkHashList,&cipherlen);
-    
-    if(retval != 1)
-    {
-        print("PowEnclave : encrypte error\n", 29, 1);
-        return SGX_ERROR_UNEXPECTED;
-    }
-
-    sgx_hmac_sha256_msg(chunkHashList,cipherlen,hmacKey_,32,hmac,32);
-
-    return SGX_SUCCESS;
-};
-
-sgx_status_t ecall_sendEncrypt(uint32_t batchNumber, uint32_t totalNumber, uint8_t* cipherKey, uint8_t* plainkey, uint8_t* serverHmac, uint8_t* upload, uint8_t* cipherBlock, uint8_t* sigList)
-{
-    uint8_t hmac[32];
-    sgx_hmac_sha256_msg(cipherKey,batchNumber*32,currentSessionKey_,32,hmac,32);
-    if(memcmp(hmac,serverHmac,32)!=0)
-    {
-        print("PowEnclave : hmac error\n", 25, 1);
-        print("PowEnclave : recved hmac = ", 28, 1);
-        print((char*)serverHmac,32,2);
-        print("PowEnclave : generate hmac = ", 30, 1);
-        print((char*)hmac,32,2);
-         return SGX_ERROR_UNEXPECTED;
-    }
-    uint32_t plainlen;
-    int status = decrypt(cipherKey, batchNumber * 32, currentSessionKey_, 32, plainkey, &plainlen);
-    if(status != 1)
-    {
-        print("PowEnclave : decrypte error\n", 29, 1);
-        return SGX_ERROR_UNEXPECTED;
-    }
-    if(plainlen!=batchNumber*32)
-    {
-        print("PowEnclave : plainlen error\n", 29, 1);
-        return SGX_ERROR_UNEXPECTED;
-    }
-
-    uint32_t sz, currentCipherlen, currentIndex=0, needNumber = 0,cipherlen=0;
-    for(int i = 0;i<batchNumber;i++)
-    {
-        memcpy(&sz, currentBlock + currentIndex, sizeof(int));
-        currentIndex += sizeof(int);
-        if(upload[i]==1)
-        {
-            status = encrypt(currentBlock + currentIndex, sz,plainkey+i*32, 32, cipherBlock + cipherlen, &currentCipherlen);
-            if(status != 1)
-            {
-                print("PowEnclave : encrypte error\n", 29, 1);
-                return SGX_ERROR_UNEXPECTED;
-            }
-            sgx_hmac_sha256_msg(cipherBlock + cipherlen, currentCipherlen,hmacKey_,32,sigList+needNumber*32,32);
-            cipherlen += currentCipherlen;
-            needNumber++;
-        }
-        currentIndex += sz;
-    }
-
-    if(needNumber != totalNumber)
-    {
-         print("PowEnclave : calc need error\n", 30, 1);
-          return SGX_ERROR_UNEXPECTED;
-    }
-
     return SGX_SUCCESS;
 }
 
@@ -364,64 +260,4 @@ sgx_status_t enclave_sealed_close(uint8_t* sealed_buf)
         //     }
         // }
     }
-}
-
-int encrypt(uint8_t* plaint, uint32_t plaintLen, uint8_t* symKey,
-    uint32_t symKeyLen, uint8_t* cipher, uint32_t* cipherLen)
-{
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (ctx == NULL) {
-        return 0;
-    }
-    if (!EVP_EncryptInit_ex(ctx, EVP_aes_256_cfb(), NULL, symKey, symKey)) {
-        goto error;
-    }
-
-    if (!EVP_EncryptUpdate(ctx, cipher, (int*)cipherLen, plaint, plaintLen)) {
-        goto error;
-    }
-
-    int len;
-    if (!EVP_EncryptFinal_ex(ctx, cipher + *cipherLen, &len)) {
-        goto error;
-    }
-    cipherLen += len;
-    EVP_CIPHER_CTX_cleanup(ctx);
-    EVP_CIPHER_CTX_free(ctx);
-    return 1;
-error:
-    EVP_CIPHER_CTX_cleanup(ctx);
-    EVP_CIPHER_CTX_free(ctx);
-    return 0;
-}
-
-int decrypt(uint8_t* cipher, uint32_t cipherLen, uint8_t* symKey,
-    uint32_t symKeyLen, uint8_t* plaint, uint32_t* plaintLen)
-{
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (ctx == NULL) {
-        return 0;
-    }
-    if (!EVP_DecryptInit_ex(ctx, EVP_aes_256_cfb(), NULL, symKey, symKey)) {
-        goto error;
-    }
-
-    if (!EVP_DecryptUpdate(ctx, plaint, (int*)plaintLen, cipher, cipherLen)) {
-        goto error;
-    }
-
-    int decryptLen;
-    if (!EVP_DecryptFinal_ex(ctx, plaint + *plaintLen, &decryptLen)) {
-        goto error;
-    }
-    plaintLen += decryptLen;
-
-    EVP_CIPHER_CTX_cleanup(ctx);
-    EVP_CIPHER_CTX_free(ctx);
-    return 1;
-
-error:
-    EVP_CIPHER_CTX_cleanup(ctx);
-    EVP_CIPHER_CTX_free(ctx);
-    return 0;
 }

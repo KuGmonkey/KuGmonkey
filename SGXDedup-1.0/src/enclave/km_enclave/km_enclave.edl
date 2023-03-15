@@ -29,8 +29,6 @@ enclave {
         public sgx_status_t ecall_clientStatusModify(int clientID, 
                                                     [user_check]uint8_t* inputBuffer, 
                                                     [user_check]uint8_t* hmacBuffer);
-        public sgx_status_t ecall_processSignedHash([user_check]uint8_t* hmac, [user_check]uint8_t* chunkHashList, int hashSize, [user_check]uint8_t* keyList, [user_check]uint8_t* tagList);
-        public sgx_status_t ecall_verifyChunkSig([user_check]uint8_t* chunkHmac, [user_check]uint8_t* chunk, uint32_t size);
     };
     untrusted {
 		    void print([in,size=len]const char* mem, uint32_t len, uint32_t type);

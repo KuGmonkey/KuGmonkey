@@ -81,28 +81,6 @@ bool keyServer::initEnclaveViaRemoteAttestation(ssl* raSecurityChannel, SSL* ssl
     return true;
 }
 
-bool keyServer::initEnclave()
-{
-    if(!client->init()){
-        cerr << "keyServer : fail to init enclave"<<endl;
-    }else {
-        raSetupFlag_ = true;
-        sessionKeyUpdateFlag_ = true;
-#if SYSTEM_DEBUG_FLAG == 1
-        cerr << "KeyServer : enclave trusted" << endl;
-#endif
-    }
-    multiThreadCountMutex_.lock();
-    keyGenerateCount_ = 0;
-    multiThreadCountMutex_.unlock();
-    return true;
-}
-
-void keyServer::getCurrentSessionKey(char* currentSessionKeyTemp)
-{
-    client->getCurrentSessionKey(currentSessionKeyTemp);
-}
-
 void keyServer::runRAwithSPRequest()
 {
     ssl* raSecurityChannelTemp = new ssl(config.getKeyServerIP(), config.getkeyServerRArequestPort(), SERVERSIDE);

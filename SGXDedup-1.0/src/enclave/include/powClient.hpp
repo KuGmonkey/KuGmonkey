@@ -37,7 +37,7 @@ private:
     bool enclaveIsTrusted_;
     messageQueue<Data_t>* inputMQ_;
     Sender* senderObj_;
-    bool request(u_char* logicDataBatchBuffer, uint32_t bufferSize, uint32_t number, uint8_t* cmac, uint8_t* chunkHashList);
+    bool request(u_char* logicDataBatchBuffer, uint32_t bufferSize, uint8_t cmac[16], uint8_t* chunkHashList);
     CryptoPrimitive* cryptoObj_;
     uint32_t sealedLen_;
     uint32_t startMethod_;
@@ -61,7 +61,6 @@ public:
     bool insertMQ(Data_t& newChunk);
     bool extractMQ(Data_t& newChunk);
     bool editJobDoneFlag();
-    void setSessionKey(unsigned  char* currentSessionKey, unsigned char* hmacKey);
 };
 
 #endif //SGXDEDUP_POWCLIENT_HPP

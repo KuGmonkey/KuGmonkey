@@ -37,7 +37,6 @@ bool DedupCore::dedupByHash(u_char* inputHashList, int chunkNumber, bool* out, i
         string queryKey((char*)(inputHashList + i * CHUNK_HASH_SIZE), CHUNK_HASH_SIZE);
         bool fp2ChunkDBQueryStatus = fp2ChunkDB.query(queryKey, tmpdata);
         if (fp2ChunkDBQueryStatus) {
-            cerr<<"duplicate"<<endl;
             continue;
         } else {
             out[i] = true;

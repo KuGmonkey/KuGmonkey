@@ -190,20 +190,17 @@ bool powServer::process_msg3(enclaveSession* current, sgx_ra_msg3_t* msg3,
     ra_msg4_t& msg4, uint32_t quote_sz)
 {
 
-    cerr << "PowServer :1" << endl;
     if (CRYPTO_memcmp(&msg3->g_a, &current->msg1.g_a, sizeof(sgx_ec256_public_t))) {
         cerr << "PowServer : msg1.ga != msg3.ga\n";
         return false;
     }
     sgx_mac_t msgMAC;
-    cerr << "PowServer :2" << endl;
     cmac128(current->smk, (unsigned char*)&msg3->g_a, sizeof(sgx_ra_msg3_t) - sizeof(sgx_mac_t) + quote_sz, (unsigned char*)msgMAC);
     if (CRYPTO_memcmp(msg3->mac, msgMAC, sizeof(sgx_mac_t))) {
         cerr << "PowServer : broken msg3 from client\n";
         return false;
     }
     char* b64quote;
-    cerr << "PowServer :3" << endl;
     b64quote = base64_encode((char*)&msg3->quote, quote_sz);
     sgx_quote_t* q;
     q = (sgx_quote_t*)msg3->quote;
@@ -211,7 +208,6 @@ bool powServer::process_msg3(enclaveSession* current, sgx_ra_msg3_t* msg3,
         cerr << "PowServer : Attestation failed. Differ gid\n";
         return false;
     }
-    cerr << "PowServer :4" << endl;
     if (get_attestation_report(b64quote, msg3->ps_sec_prop, &msg4)) {
         free(b64quote);
         cerr << "PowServer : Get Attestation report success\n";
@@ -232,7 +228,7 @@ bool powServer::process_msg3(enclaveSession* current, sgx_ra_msg3_t* msg3,
          */
 
         /* Derive VK */
-        cerr << "PowServer :5" << endl;
+
         cmac128(current->kdk, (unsigned char*)("\x01VK\x00\x80\x00"),
             6, current->vk);
 
@@ -243,9 +239,9 @@ bool powServer::process_msg3(enclaveSession* current, sgx_ra_msg3_t* msg3,
         memcpy(&msg_rdata[128], current->vk, 16);
 
         /* SHA-256 hash */
-        cerr << "PowServer :6" << endl;
+
         sha256_digest(msg_rdata, 144, vfy_rdata);
-        cerr << "PowServer :7" << endl;
+
         if (CRYPTO_memcmp((void*)vfy_rdata, (void*)&r->report_data,
                 64)) {
 
@@ -253,7 +249,6 @@ bool powServer::process_msg3(enclaveSession* current, sgx_ra_msg3_t* msg3,
             return false;
         }
         // temp ---- msg4 maul setting
-        cerr << "PowServer :8" << endl;
         msg4.status = true;
         if (msg4.status) {
             cmac128(current->kdk, (unsigned char*)("\x01MK\x00\x80\x00"),
@@ -281,6 +276,7 @@ bool powServer::get_attestation_report(const char* b64quote, sgx_ps_sec_prop_des
     vector<string> messages;
     ias_error_t status;
     string content;
+
     req = new IAS_Request(_ias, (uint16_t)_iasVersion);
     if (req == nullptr) {
         cerr << "PowServer : Exception while creating IAS request object\n";
@@ -290,7 +286,6 @@ bool powServer::get_attestation_report(const char* b64quote, sgx_ps_sec_prop_des
     payload.insert(make_pair("isvEnclaveQuote", b64quote));
 
     status = req->report(payload, content, messages);
-
     if (status == IAS_OK) {
         using namespace json;
         JSON reportObj = JSON::Load(content);
@@ -338,19 +333,4 @@ bool powServer::process_signedHash(enclaveSession* session, u_char* mac, u_char*
         PRINT_BYTE_ARRAY_POW_SERVER(stderr, serverMac, 16);
         return false;
     }
-}
-
-bool powServer::verifySig(u_char* data, uint32_t dataSize, u_char* hmacKey, uint32_t keysize, u_char* clientHmac)
-{
-    u_char serverMac[32];
-    cryptoObj_->sha256Hmac(data, dataSize, serverMac, hmacKey, 32);
-    if(memcmp(serverMac,clientHmac,32)!=0)
-    {
-        cerr << "PowServer : client signature unvalid, client mac = " << endl;
-        PRINT_BYTE_ARRAY_POW_SERVER(stderr, clientHmac, 32);
-        cerr << "\t server mac = " << endl;
-        PRINT_BYTE_ARRAY_POW_SERVER(stderr, serverMac, 32);
-        return false;
-    }
-    return true;
 }

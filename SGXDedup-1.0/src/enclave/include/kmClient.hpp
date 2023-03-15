@@ -41,7 +41,6 @@ public:
     kmClient(string keyd, uint64_t keyRegressionMaxTimes);
     ~kmClient();
     bool init(ssl* raSecurityChannel, SSL* sslConnection);
-    bool init();
     bool trusted();
 #if KEY_GEN_METHOD_TYPE == KEY_GEN_SGX_CTR
     bool request(u_char* hash, int hashSize, u_char* key, int keySize, int clientID);
@@ -56,9 +55,6 @@ public:
     bool getMsg01(sgx_enclave_id_t& eid, sgx_ra_context_t& ctx, string& msg01);
     bool processMsg2(sgx_enclave_id_t& eid, sgx_ra_context_t& ctx, string& Msg2, string& msg3);
     void raclose(sgx_enclave_id_t& eid, sgx_ra_context_t& ctx);
-    void getCurrentSessionKey(char* currentSessionKeyTemp);
-    bool generateKey(uint8_t* hmac,uint8_t* chunkHashList, int hashSize, uint8_t* keyList, uint8_t* tagList);
-    bool verifyChunk(uint8_t* chunk, uint32_t size, uint8_t* chunkHmac);
 };
 
 #endif //SGXDEDUP_KMCLIENT_HPP

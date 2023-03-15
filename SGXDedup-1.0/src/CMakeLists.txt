@@ -27,8 +27,8 @@ set(UTIL_OBJ configure cryptoPrimitive SSL_TLS database)
 set(LINK_OBJ ${UTIL_OBJ} ${OPENSSL_LIBRARY_OBJ} ${LEVELDB_LIBRARY_OBJ} ${BOOST_LIBRARY_OBJ} ${UTIL_OBJ} ${SYSTEM_LIBRARY_OBJ})
 
 set(CLIENT_OBJ chunker fingerprinter keyClient encoder powClient sender recvDecode  retriever)
-set(SERVER_OBJ dataSR  dedupCore powServer storage kmServer keyServer kmClient) 
-# set(KEYSERVER_OBJ keyServer kmClient sgxErrorSupport)
+set(SERVER_OBJ dataSR  dedupCore powServer storage kmServer) 
+set(KEYSERVER_OBJ keyServer kmClient sgxErrorSupport)
 
 #-fno-builtin-memset
 
@@ -57,5 +57,5 @@ set(CMAKE_MODULE_PATH /usr/share/cmake-3.10/Modules/)
 add_subdirectory(enclave)
 add_subdirectory(client)
 add_subdirectory(server)
-# add_subdirectory(keymanage)
+add_subdirectory(keymanage)
 add_subdirectory(util)

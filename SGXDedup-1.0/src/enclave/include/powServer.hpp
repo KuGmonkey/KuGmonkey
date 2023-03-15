@@ -77,7 +77,6 @@ public:
     bool process_msg01(int fd, sgx_msg01_t& msg01, sgx_ra_msg2_t& msg2);
     bool process_msg3(enclaveSession* session, sgx_ra_msg3_t* msg3, ra_msg4_t& msg4, uint32_t quote_sz);
     bool process_signedHash(enclaveSession* session, u_char* mac, u_char* hashList, int chunkNumber);
-    bool verifySig(u_char* data, uint32_t dataSize, u_char* hmacKey, uint32_t keysize, u_char* clientHmac);
 };
 
 #endif //SGXDEDUP_POWSERVER_HPP

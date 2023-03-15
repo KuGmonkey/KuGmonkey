@@ -1,4 +1,3 @@
-#include "keyServer.hpp"
 #include "../enclave/include/powServer.hpp"
 #include "boost/thread.hpp"
 #include "configure.hpp"
@@ -17,7 +16,6 @@ DataSR* dataSRObj;
 StorageCore* storageObj;
 DedupCore* dedupCoreObj;
 powServer* powServerObj;
-keyServer* keyServerObj;
 
 vector<boost::thread*> thList;
 
@@ -58,19 +56,17 @@ int main()
 
     ssl* dataSecurityChannelTemp = new ssl(config.getStorageServerIP(), config.getStorageServerPort(), SERVERSIDE);
     ssl* powSecurityChannelTemp = new ssl(config.getStorageServerIP(), config.getPOWServerPort(), SERVERSIDE);
-    ssl* keySecurityChannelTemp = new  ssl(config.getStorageServerIP(),config.getKeyServerPort(),SERVERSIDE);
 
     dedupCoreObj = new DedupCore();
     storageObj = new StorageCore();
     powServerObj = new powServer();
-    keyServerObj = new keyServer(keySecurityChannelTemp);
-    dataSRObj = new DataSR(storageObj, dedupCoreObj, powServerObj, keyServerObj, powSecurityChannelTemp, dataSecurityChannelTemp);
+    dataSRObj = new DataSR(storageObj, dedupCoreObj, powServerObj, powSecurityChannelTemp, dataSecurityChannelTemp);
 
     boost::thread* th;
-    // th = new boost::thread(boost::bind(&DataSR::runKeyServerRemoteAttestation, dataSRObj));
-    // thList.push_back(th);
-    // th->detach();
-    th = new boost::thread(boost::bind(&DataSR::runSessionKeyUpdate, dataSRObj));
+    th = new boost::thread(boost::bind(&DataSR::runKeyServerRemoteAttestation, dataSRObj));
+    thList.push_back(th);
+    th->detach();
+    th = new boost::thread(boost::bind(&DataSR::runKeyServerSessionKeyUpdate, dataSRObj));
     thList.push_back(th);
     th->detach();
 
@@ -78,11 +74,9 @@ int main()
     attrs.set_stack_size(100 * 1024 * 1024);
     while (true) {
         SSL* sslConnectionData = dataSecurityChannelTemp->sslListen().second;
-        cerr << "Server start data channel" << endl;
         th = new boost::thread(attrs, boost::bind(&DataSR::runData, dataSRObj, sslConnectionData));
         thList.push_back(th);
         SSL* sslConnectionPow = powSecurityChannelTemp->sslListen().second;
-        cerr << "Server start pow channel" << endl;
         th = new boost::thread(attrs, boost::bind(&DataSR::runPow, dataSRObj, sslConnectionPow));
         thList.push_back(th);
     }

@@ -4,11 +4,6 @@
 
 extern Configure config;
 
-uint8_t hmacKey[32] = { 0xd4, 0x81, 0x40, 0xd9, 0x50, 0xe2, 0x57, 0x7b,
-                                                               0x26, 0xee, 0xb7, 0x41, 0xe7, 0xc6, 0x14, 0xe2,
-                                                               0x24, 0xb7, 0xbd, 0xc9, 0x03, 0xf2, 0x9a, 0x28,
-                                                               0xa8, 0x3c, 0xc8, 0x10, 0x11, 0x14, 0x5e, 0x06 };
-
 void PRINT_BYTE_ARRAY_DATA_SR(
     FILE* file, void* mem, uint32_t len)
 {
@@ -28,20 +23,16 @@ void PRINT_BYTE_ARRAY_DATA_SR(
     fprintf(file, "\n}\n");
 }
 
-DataSR::DataSR(StorageCore* storageObj, DedupCore* dedupCoreObj, powServer* powServerObj, keyServer* keyServerObj, ssl* powSecurityChannelTemp, ssl* dataSecurityChannelTemp)
+DataSR::DataSR(StorageCore* storageObj, DedupCore* dedupCoreObj, powServer* powServerObj, ssl* powSecurityChannelTemp, ssl* dataSecurityChannelTemp)
 {
     restoreChunkBatchNumber_ = config.getSendChunkBatchSize();
     storageObj_ = storageObj;
     dedupCoreObj_ = dedupCoreObj;
     powServerObj_ = powServerObj;
-    keyServerObj_ = keyServerObj;
     keyExchangeKeySetFlag_ = false;
     powSecurityChannel_ = powSecurityChannelTemp;
     dataSecurityChannel_ = dataSecurityChannelTemp;
     keyRegressionCurrentTimes_ = config.getKeyRegressionMaxTimes();
-    keyServerObj_->initEnclave();
-    memset(keyExchangeKey_,0,KEY_SERVER_SESSION_KEY_SIZE);
-
 #if SYSTEM_DEBUG_FLAG == 1
     cout << " DataSR : key regression current count = " << keyRegressionCurrentTimes_ << endl;
 #endif
@@ -121,29 +112,6 @@ void DataSR::runData(SSL* sslConnection)
 #if SYSTEM_BREAK_DOWN == 1
                 gettimeofday(&timestartDataSR, NULL);
 #endif
-
-                cerr<<"DataSR : begin verify chunk"<<endl;
-                bool verifyStatus;
-                uint32_t sz,currentIndex = sizeof(NetworkHeadStruct_t)+sizeof(int),currentNumber;
-                uint8_t chunkHmac[32];
-                memcpy(&currentNumber, recvBuffer + sizeof(NetworkHeadStruct_t),sizeof(int));
-                for(int i=0;i<currentNumber;i++)
-                {
-                    currentIndex += CHUNK_HASH_SIZE;
-                    memcpy(&sz, recvBuffer + currentIndex, sizeof(int));
-                    currentIndex += sizeof(int);
-                    memcpy(chunkHmac, recvBuffer+currentIndex+sz,32);
-                    //verifyStatus = keyServerObj_->verifyChunk((uint8_t*)recvBuffer+currentIndex, sz, chunkHmac);
-                    verifyStatus = powServerObj_->verifySig((uint8_t*)recvBuffer + currentIndex, sz, hmacKey, 32, chunkHmac);
-                    if(!verifyStatus)
-                    {
-                        cerr<<"DataSR : chunkHmac error";
-                        return;
-                    }
-                    currentIndex += sz;
-                    currentIndex += CHUNK_HASH_SIZE;
-                }
-                cerr<<"DataSR : verify chunk done"<<endl;
                 bool storeChunkStatus = storageObj_->storeChunks(netBody, (char*)recvBuffer + sizeof(NetworkHeadStruct_t));
 #if SYSTEM_BREAK_DOWN == 1
                 gettimeofday(&timeendDataSR, NULL);
@@ -467,8 +435,7 @@ void DataSR::runPow(SSL* sslConnection)
                     netBody.dataSize = KEY_SERVER_SESSION_KEY_SIZE;
                     memcpy(sendBuffer, &netBody, sizeof(NetworkHeadStruct_t));
                     memcpy(sendBuffer + sizeof(NetworkHeadStruct_t), keyExchangeKey_, KEY_SERVER_SESSION_KEY_SIZE);
-                    memcpy(sendBuffer + sizeof(NetworkHeadStruct_t) + KEY_SERVER_SESSION_KEY_SIZE, hmacKey, KEY_SERVER_SESSION_KEY_SIZE);
-                    sendSize = sizeof(NetworkHeadStruct_t) + 2 * KEY_SERVER_SESSION_KEY_SIZE;
+                    sendSize = sizeof(NetworkHeadStruct_t) + KEY_SERVER_SESSION_KEY_SIZE;
                 } else {
                     netBody.messageType = ERROR_CLOSE;
                     netBody.dataSize = 0;
@@ -496,17 +463,14 @@ void DataSR::runPow(SSL* sslConnection)
                     memcpy(sendBuffer, &netBody, sizeof(NetworkHeadStruct_t));
                     memcpy(sendBuffer + sizeof(NetworkHeadStruct_t), &msg2, sizeof(sgx_ra_msg2_t));
                     sendSize = sizeof(NetworkHeadStruct_t) + sizeof(sgx_ra_msg2_t);
-                    cerr << "PowServer : recv msg01" << endl;
                 }
 #if MULTI_CLIENT_UPLOAD_TEST == 1
                 mutexSessions_.unlock();
 #endif
                 powSecurityChannel_->send(sslConnection, sendBuffer, sendSize);
-                cerr << "PowServer :send msg2 done" << endl;
                 break;
             }
             case SGX_RA_MSG3: {
-                 cerr << "PowServer :recv msg3" << endl;
                 sgx_ra_msg3_t* msg3 = (sgx_ra_msg3_t*)malloc(netBody.dataSize);
                 memcpy(msg3, recvBuffer + sizeof(NetworkHeadStruct_t), netBody.dataSize);
 #if MULTI_CLIENT_UPLOAD_TEST == 1
@@ -519,7 +483,6 @@ void DataSR::runPow(SSL* sslConnection)
                     memcpy(sendBuffer, &netBody, sizeof(NetworkHeadStruct_t));
                     sendSize = sizeof(NetworkHeadStruct_t);
                 } else {
-                     cerr << "PowServer :to proc msg3 " << endl;
                     if (powServerObj_->process_msg3(powServerObj_->sessions[clientID], msg3, msg4, netBody.dataSize - sizeof(sgx_ra_msg3_t))) {
                         netBody.messageType = SUCCESS;
                         netBody.dataSize = sizeof(ra_msg4_t);
@@ -527,7 +490,6 @@ void DataSR::runPow(SSL* sslConnection)
                         memcpy(sendBuffer + sizeof(NetworkHeadStruct_t), &msg4, sizeof(ra_msg4_t));
                         sendSize = sizeof(NetworkHeadStruct_t) + sizeof(ra_msg4_t);
                         currentSession = powServerObj_->sessions[clientID];
-                        cerr << "PowServer : proc msg3 done" << endl;
 #if SYSTEM_DEBUG_FLAG == 1
                         cout << "PoWServer : client remote attestation passed, session key = " << endl;
                         PRINT_BYTE_ARRAY_DATA_SR(stderr, currentSession->sk, 16);
@@ -548,18 +510,12 @@ void DataSR::runPow(SSL* sslConnection)
                 break;
             }
             case SGX_SIGNED_HASH: {
-                u_char clientMac[32];
-                memcpy(clientMac, recvBuffer + sizeof(NetworkHeadStruct_t), sizeof(uint8_t) * 32);
-
-                print("DataSR : keyexchange hmac = ", 29, 1);
-                PRINT_BYTE_ARRAY_DATA_SR(stderr,clientMac,32);
-
-                int signedHashSize = netBody.dataSize - sizeof(uint8_t) * 32;
+                u_char clientMac[16];
+                memcpy(clientMac, recvBuffer + sizeof(NetworkHeadStruct_t), sizeof(uint8_t) * 16);
+                int signedHashSize = netBody.dataSize - sizeof(uint8_t) * 16;
                 int signedHashNumber = signedHashSize / CHUNK_HASH_SIZE;
                 u_char hashList[signedHashSize];
-                u_char keyList[signedHashSize + 32];
-                u_char tagList[signedHashSize];
-                memcpy(hashList, recvBuffer + sizeof(NetworkHeadStruct_t) + sizeof(uint8_t) * 32, signedHashSize);
+                memcpy(hashList, recvBuffer + sizeof(NetworkHeadStruct_t) + sizeof(uint8_t) * 16, signedHashSize);
                 if (currentSession == nullptr || !currentSession->enclaveTrusted) {
                     cerr << "PowServer : client not trusted yet" << endl;
                     netBody.messageType = ERROR_CLOSE;
@@ -573,16 +529,7 @@ void DataSR::runPow(SSL* sslConnection)
 #if MULTI_CLIENT_UPLOAD_TEST == 1
                     mutexCrypto_.lock();
 #endif
-                    bool verifySigStatus = powServerObj_->verifySig(hashList, signedHashSize, hmacKey,32,clientMac);
-                    if(!verifySigStatus)
-                    {
-                        cerr<<"DataSR : verify Sig fail"<<endl;
-                        return ;
-                    }
-                    //bool powVerifyStatus = powServerObj_->process_signedHash(powServerObj_->sessions.at(clientID), clientMac, hashList, signedHashNumber);
-                    cerr<<"DataSR : to generate key"<<endl;
-                    bool powVerifyStatus = keyServerObj_->generateKeywithPOW(clientMac, hashList, signedHashSize, keyList,tagList);
-                    cerr<<"DataSR : generate key done"<<endl;
+                    bool powVerifyStatus = powServerObj_->process_signedHash(powServerObj_->sessions.at(clientID), clientMac, hashList, signedHashNumber);
 #if MULTI_CLIENT_UPLOAD_TEST == 1
                     mutexCrypto_.unlock();
 #endif
@@ -598,7 +545,7 @@ void DataSR::runPow(SSL* sslConnection)
 #if SYSTEM_BREAK_DOWN == 1
                         gettimeofday(&timestartDataSR, NULL);
 #endif
-                        bool dedupQueryStatus = dedupCoreObj_->dedupByHash(tagList, signedHashNumber, requiredChunkTemp, requiredChunkNumber);
+                        bool dedupQueryStatus = dedupCoreObj_->dedupByHash(hashList, signedHashNumber, requiredChunkTemp, requiredChunkNumber);
 #if SYSTEM_BREAK_DOWN == 1
                         gettimeofday(&timeendDataSR, NULL);
                         diff = 1000000 * (timeendDataSR.tv_sec - timestartDataSR.tv_sec) + timeendDataSR.tv_usec - timestartDataSR.tv_usec;
@@ -607,12 +554,10 @@ void DataSR::runPow(SSL* sslConnection)
 #endif
                         if (dedupQueryStatus) {
                             netBody.messageType = SUCCESS;
-                            netBody.dataSize = sizeof(int) + sizeof(bool) * signedHashNumber + signedHashSize + 32  + signedHashSize;
+                            netBody.dataSize = sizeof(int) + sizeof(bool) * signedHashNumber;
                             memcpy(sendBuffer, &netBody, sizeof(NetworkHeadStruct_t));
                             memcpy(sendBuffer + sizeof(NetworkHeadStruct_t), &requiredChunkNumber, sizeof(int));
                             memcpy(sendBuffer + sizeof(NetworkHeadStruct_t) + sizeof(int), requiredChunkTemp, signedHashNumber * sizeof(bool));
-                            memcpy(sendBuffer + sizeof(NetworkHeadStruct_t) + sizeof(int) + signedHashNumber * sizeof(bool) , keyList, signedHashSize + 32);
-                            memcpy(sendBuffer + sizeof(NetworkHeadStruct_t) + sizeof(int) + signedHashNumber * sizeof(bool) + signedHashSize + 32 , tagList, signedHashSize);
                             sendSize = sizeof(NetworkHeadStruct_t) + netBody.dataSize;
                         } else {
                             cerr << "DedupCore : recv sgx signed hash success, dedup stage report error" << endl;
@@ -702,21 +647,6 @@ void DataSR::runKeyServerSessionKeyUpdate()
     return;
 }
 
-void DataSR::runSessionKeyUpdate()
-{
-    keyServerObj_->runSessionKeyUpdate();
-    char currentSessionKey[64]={0};
-    keyServerObj_->getCurrentSessionKey(currentSessionKey);
-    memcpy(keyExchangeKey_,currentSessionKey,32);
-    keyExchangeKeySetFlag_ = true;
-    cerr<<"DataSR : current session key = "<<endl;
-    PRINT_BYTE_ARRAY_DATA_SR(stderr,keyExchangeKey_,KEY_SERVER_SESSION_KEY_SIZE);
-    boost::xtime xt;
-    boost::xtime_get(&xt, boost::TIME_UTC_);
-    xt.sec += config.getKeyRegressionIntervals();
-    boost::thread::sleep(xt);
-}
-
 void DataSR::runKeyServerRemoteAttestation()
 {
     ssl* sslRAListen = new ssl(config.getStorageServerIP(), config.getKMServerPort(), SERVERSIDE);
@@ -768,10 +698,3 @@ void DataSR::runKeyServerRemoteAttestation()
     }
     return;
 }
-
-void DataSR::runKey(SSL* sslConnection)
-{
-    keyServerObj_->runKeyGenerateThread(sslConnection);
-    return;
-}
-

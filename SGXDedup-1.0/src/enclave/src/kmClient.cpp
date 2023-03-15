@@ -165,7 +165,6 @@ kmClient::kmClient(string keyd, uint64_t keyRegressionMaxTimes)
 {
     _keyd = keyd;
     keyRegressionMaxTimes_ = keyRegressionMaxTimes;
-    enclave_trusted = true;
 }
 
 kmClient::~kmClient()
@@ -310,130 +309,6 @@ bool kmClient::init(ssl* raSecurityChannel, SSL* sslConnection)
         cerr << "KmClient : enclave not trusted by storage server" << endl;
         return false;
     }
-}
-
-bool kmClient::init()
-{
-#if SYSTEM_BREAK_DOWN == 1
-    long diff;
-    double second;
-#endif
-    _ctx = 0xdeadbeef;
-    sgx_status_t status;
-    sgx_status_t retval;
-    raclose(_eid, _ctx);
-#if SYSTEM_BREAK_DOWN == 1
-    gettimeofday(&timestartkmClient, NULL);
-#endif
-    status = ecall_enclave_close(_eid, &retval);
-    sgx_destroy_enclave(_eid);
-
-    string enclaveName = config.getKMEnclaveName();
-    cerr << "KmClient : start to create enclave" << endl;
-    status = sgx_create_enclave(enclaveName.c_str(), SGX_DEBUG_FLAG, &_token, &updated, &_eid, 0);
-    if (status != SGX_SUCCESS) {
-        cerr << "KmClient : Can not launch km_enclave : " << enclaveName << endl;
-        sgxErrorReport(status);
-        return false;
-    }
-    
-#if SYSTEM_BREAK_DOWN == 1
-    gettimeofday(&timeendKmClient, NULL);
-    diff = 1000000 * (timeendKmClient.tv_sec - timestartkmClient.tv_sec) + timeendKmClient.tv_usec - timestartkmClient.tv_usec;
-    second = diff / 1000000.0;
-    cout << "KmClient : remote attestation time = " << second << " s" << endl;
-#endif
-#if SYSTEM_BREAK_DOWN == 1
-        gettimeofday(&timestartkmClient, NULL);
-#endif
-    status = ecall_setServerSecret(_eid,
-        &retval,
-        (uint8_t*)_keyd.c_str(),
-        (uint32_t)_keyd.length());
-#if SYSTEM_BREAK_DOWN == 1
-        gettimeofday(&timeendKmClient, NULL);
-        diff = 1000000 * (timeendKmClient.tv_sec - timestartkmClient.tv_sec) + timeendKmClient.tv_usec - timestartkmClient.tv_usec;
-        second = diff / 1000000.0;
-        cout << "KmClient : set key enclave global secret time = " << second << " s" << endl;
-#endif
-    if (status == SGX_SUCCESS) {
-        cerr << "KmClient : set server secret successful " <<endl;
-#if SYSTEM_DEBUG_FLAG == 1
-            uint8_t ans[32];
-            status = ecall_getServerSecret(_eid, &retval, ans);
-            cerr << "KmClient : current server secret = " << endl;
-            PRINT_BYTE_ARRAY_KM(stderr, ans, 32);
-#endif
-#if SYSTEM_BREAK_DOWN == 1
-            gettimeofday(&timestartkmClient, NULL);
-#endif
-        uint32_t keyRegressionCounter = config.getKeyRegressionMaxTimes();
-        status = ecall_setKeyRegressionCounter(_eid,
-            &retval,
-            keyRegressionCounter);
-#if SYSTEM_BREAK_DOWN == 1
-            gettimeofday(&timeendKmClient, NULL);
-            diff = 1000000 * (timeendKmClient.tv_sec - timestartkmClient.tv_sec) + timeendKmClient.tv_usec - timestartkmClient.tv_usec;
-            second = diff / 1000000.0;
-            cout << "KmClient : set key regression max counter time = " << second << " s" << endl;
-#endif
-        if (status == SGX_SUCCESS) {
-            cerr << "KmClient : set key regression counter successful " <<endl;
-#if SYSTEM_BREAK_DOWN == 1
-                gettimeofday(&timestartkmClient, NULL);
-#endif
-             status = ecall_setSessionKey(_eid,
-                &retval, &_ctx);
-#if SYSTEM_BREAK_DOWN == 1
-                gettimeofday(&timeendKmClient, NULL);
-                diff = 1000000 * (timeendKmClient.tv_sec - timestartkmClient.tv_sec) + timeendKmClient.tv_usec - timestartkmClient.tv_usec;
-                second = diff / 1000000.0;
-                cout << "KmClient : set key enclave session key time = " << second << " s" << endl;
-#endif
-             if (status == SGX_SUCCESS) {
-                cerr << "KmClient : set session key successful " <<endl;
-#if KEY_GEN_METHOD_TYPE == KEY_GEN_SGX_CTR
-#if SYSTEM_BREAK_DOWN == 1
-                    gettimeofday(&timestartkmClient, NULL);
-#endif
-                    status = ecall_setCTRMode(_eid, &retval);
-#if SYSTEM_BREAK_DOWN == 1
-                    gettimeofday(&timeendKmClient, NULL);
-                    diff = 1000000 * (timeendKmClient.tv_sec - timestartkmClient.tv_sec) + timeendKmClient.tv_usec - timestartkmClient.tv_usec;
-                    second = diff / 1000000.0;
-                    cout << "KmClient : init enclave ctr mode time = " << second << " s" << endl;
-#endif
-                    if (status == SGX_SUCCESS) {
-                        return true;
-                    } else {
-                        cerr << "KmClient : set key server offline mask generate space error, status = " << endl;
-                        sgxErrorReport(status);
-                        return false;
-                    }
-#else
-                return true;
-#endif
-                } else {
-                    cerr << "KmClient : set key server generate regression session key error, status = " << endl;
-                    sgxErrorReport(status);
-                    return false;
-                }
-            } else {
-                cerr << "KmClient : set key server key regression max counter error, status = " << endl;
-                sgxErrorReport(status);
-                return false;
-            }
-        } else {
-            cerr << "KmClient : set key server secret error, status = " << endl;
-            sgxErrorReport(status);
-            return false;
-        }
-    } 
-
-void kmClient::getCurrentSessionKey(char* currentSessionKeyTemp)
-{
-    sgx_status_t retval;
-    ecall_getCurrentSessionKey(_eid,&retval,currentSessionKeyTemp);
 }
 
 bool kmClient::createEnclave(sgx_enclave_id_t& eid,
@@ -662,29 +537,5 @@ bool kmClient::doAttestation()
 
     enclave_trusted = msg4->status;
     free(msg4);
-    return true;
-}
-
-bool kmClient::generateKey(uint8_t* hmac,uint8_t* chunkHashList, int hashSize, uint8_t* keyList, uint8_t* tagList)
-{
-    sgx_status_t status, retval;
-    status = ecall_processSignedHash(_eid, &retval,hmac,chunkHashList, hashSize, keyList,tagList);
-    if(status != SGX_SUCCESS)
-    {
-        cerr<<"kmClient : process signed hash error"<<endl;
-        sgxErrorReport(status);
-        return false;
-    }
-    return true;
-}
-
-bool kmClient::verifyChunk(uint8_t* chunk, uint32_t size, uint8_t* chunkHmac)
-{
-    sgx_status_t status,retval;
-    status = ecall_verifyChunkSig(_eid,&retval,chunkHmac,chunk,size);
-    if(status != SGX_SUCCESS)
-    {
-        return false;
-    }
     return true;
 }

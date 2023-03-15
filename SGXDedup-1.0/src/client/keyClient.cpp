@@ -32,9 +32,9 @@ KeyClient::KeyClient(powClient* powObjTemp, u_char* keyExchangeKey)
     powObj_ = powObjTemp;
     cryptoObj_ = new CryptoPrimitive();
     keyBatchSize_ = (int)config.getKeyBatchSize();
-    // memcpy(keyExchangeKey_, keyExchangeKey, KEY_SERVER_SESSION_KEY_SIZE);
-    // keySecurityChannel_ = new ssl(config.getKeyServerIP(), config.getKeyServerPort(), CLIENTSIDE);
-    // sslConnection_ = keySecurityChannel_->sslConnect().second;
+    memcpy(keyExchangeKey_, keyExchangeKey, KEY_SERVER_SESSION_KEY_SIZE);
+    keySecurityChannel_ = new ssl(config.getKeyServerIP(), config.getKeyServerPort(), CLIENTSIDE);
+    sslConnection_ = keySecurityChannel_->sslConnect().second;
     clientID_ = config.getClientID();
 }
 
@@ -482,10 +482,6 @@ void KeyClient::run()
             JobDoneFlag = true;
         }
         if (extractMQ(tempChunk)) {
-            
-            powObj_->insertMQ(tempChunk);
-            continue;
-
             if (tempChunk.dataType == DATA_TYPE_RECIPE) {
                 powObj_->insertMQ(tempChunk);
                 continue;

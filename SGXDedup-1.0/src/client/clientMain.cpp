@@ -160,9 +160,8 @@ int main(int argv, char* argc[])
         gettimeofday(&timestartBreakDown, NULL);
 #endif
         u_char sessionKey[KEY_SERVER_SESSION_KEY_SIZE];
-        u_char hmacKey[KEY_SERVER_SESSION_KEY_SIZE];
         senderObj = new Sender();
-        if (!senderObj->getKeyServerSK(sessionKey, hmacKey) ){
+        if (!senderObj->getKeyServerSK(sessionKey)) {
             cerr << "Client : get key server session key failed" << endl;
             delete senderObj;
             return 0;
@@ -218,24 +217,18 @@ int main(int argv, char* argc[])
         gettimeofday(&timestart, NULL);
 
         senderObj = new Sender();
-        cerr << "Client : init pow enclave" << endl;
         powClientObj = new powClient(senderObj);
 #if SYSTEM_BREAK_DOWN == 1
         gettimeofday(&timestartBreakDown, NULL);
 #endif
         u_char sessionKey[KEY_SERVER_SESSION_KEY_SIZE];
-        u_char hmacKey[KEY_SERVER_SESSION_KEY_SIZE];
 #if KEY_GEN_METHOD_TYPE == KEY_GEN_SGX_CFB || KEY_GEN_METHOD_TYPE == KEY_GEN_SGX_CTR
-        if (!senderObj->getKeyServerSK(sessionKey, hmacKey)) {
+        if (!senderObj->getKeyServerSK(sessionKey)) {
             cerr << "Client : get key server session key failed" << endl;
             delete senderObj;
             delete powClientObj;
             return 0;
         }
-        // cerr<<"Client : current session key = "<<endl;
-        // PRINT_BYTE_ARRAY_CLIENT_MAIN(stderr,sessionKey,32);
-        cerr<<"Client : set current session key"<<endl;
-        powClientObj->setSessionKey(sessionKey, hmacKey);
 #endif
 #if SYSTEM_BREAK_DOWN == 1
         gettimeofday(&timeendBreakDown, NULL);
